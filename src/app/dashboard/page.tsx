@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { getGroups } from "@/app/actions";
@@ -18,13 +18,30 @@ interface Group {
 export default function DashboardPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getGroups().then((data) => {
-      // @ts-ignore: Prisma/Server Action serialization type mismatch handling
-      setGroups(data);
-      setLoading(false);
-    });
+    // Adding a timeout to prevent infinite loading state perception if server hangs
+    const timeoutId = setTimeout(() => {
+        if (loading) setLoading(false);
+    }, 10000); // 10s timeout safety
+
+    getGroups()
+      .then((data) => {
+        // @ts-ignore
+        setGroups(data);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch groups:", err);
+        setError("データの取得に失敗しました。しばらく経ってから再読み込みしてください。");
+      })
+      .finally(() => {
+        setLoading(false);
+        clearTimeout(timeoutId);
+      });
+      
+    return () => clearTimeout(timeoutId);
   }, []);
 
   return (
@@ -39,9 +56,19 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-lg mb-6 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
       {loading ? (
-        <div className="text-center py-20 text-muted-foreground">読み込み中...</div>
-      ) : groups.length === 0 ? (
+        <div className="text-center py-20 text-muted-foreground flex flex-col items-center gap-2">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <p>読み込み中...</p>
+        </div>
+      ) : groups.length === 0 && !error ? (
         <div className="text-center py-20 border rounded-lg bg-secondary/10">
           <h2 className="text-xl font-semibold mb-2">まだ思い出がありません</h2>
           <p className="text-muted-foreground mb-6">最初の集合写真をアップロードして始めましょう。</p>
