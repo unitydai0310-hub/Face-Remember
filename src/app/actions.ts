@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { put } from "@vercel/blob";
 
 export async function createGroup(formData: FormData) {
   const name = formData.get("name") as string;
@@ -13,13 +14,15 @@ export async function createGroup(formData: FormData) {
     throw new Error("Missing required fields");
   }
 
-  const buffer = await imageFile.arrayBuffer();
-  const base64Image = `data:${imageFile.type};base64,${Buffer.from(buffer).toString("base64")}`;
+  // Upload to Vercel Blob
+  const blob = await put(imageFile.name, imageFile, {
+    access: "public",
+  });
 
   await prisma.group.create({
     data: {
       name,
-      imageUrl: base64Image,
+      imageUrl: blob.url,
     },
   });
 
@@ -63,7 +66,7 @@ export async function getGroupById(id: string) {
 }
 
 export async function askAIAction(groupId: string, formData: FormData) {
-  console.log("--- askAIAction Started (Strict Mode) ---");
+  console.log("--- askAIAction Started (Vercel Blob Mode) ---");
   const imageFile = formData.get("image") as File | null;
   const promptText = formData.get("prompt") as string || "";
 
@@ -71,34 +74,31 @@ export async function askAIAction(groupId: string, formData: FormData) {
     return { message: "画像または質問を入力してください。" };
   }
 
-  // 1. Fetch Group Data
   const group = await prisma.group.findUnique({
     where: { id: groupId },
     include: { members: true },
   });
 
-  if (!group) {
-    return { message: "グループ情報が見つかりません。" };
-  }
-  if (group.members.length === 0) {
-      return { message: "このグループにはメンバーが登録されていません。" };
+  if (!group || group.members.length === 0) {
+    return { message: "グループ情報が見つかりません、またはメンバーがいません。" };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error("API Key Missing");
-    // Return honest error
     return { message: "システムエラー: AIのAPIキーが設定されていません。" };
   }
 
   try {
-    // 2. Prepare Group Image
-    const groupImageParts = group.imageUrl.split(",");
-    if (groupImageParts.length !== 2) {
-        return { message: "エラー: グループ写真のデータが破損しています。" };
+    // 2. Fetch Group Image from Vercel Blob (URL)
+    // We need to fetch the image via URL and convert to base64 for Gemini
+    console.log("Fetching group image from URL:", group.imageUrl);
+    const groupImageRes = await fetch(group.imageUrl);
+    if (!groupImageRes.ok) {
+        return { message: "エラー: グループ写真の取得に失敗しました。" };
     }
-    const groupImageBase64 = groupImageParts[1];
-    const groupMimeType = groupImageParts[0].match(/:(.*?);/)?.[1] || "image/png";
+    const groupImageBuffer = await groupImageRes.arrayBuffer();
+    const groupImageBase64 = Buffer.from(groupImageBuffer).toString("base64");
+    const groupMimeType = groupImageRes.headers.get("content-type") || "image/png";
 
     const membersList = group.members.map(m => `- Name: ${m.name}, Description: ${m.description || "None"}`).join("\n");
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -132,8 +132,6 @@ export async function askAIAction(groupId: string, formData: FormData) {
           "matchedMemberName": "Name or null",
           "reply": "A natural Japanese response explaining who it is and why, or answering the question."
         }
-        
-        If you cannot identify the person with confidence, set "matchedMemberName" to null and explain why in "reply" (e.g., "Not found in member list", "Image too blurry").
         `;
 
         const result = await model.generateContent([
@@ -143,25 +141,20 @@ export async function askAIAction(groupId: string, formData: FormData) {
         ]);
         
         const responseText = result.response.text();
-        console.log("Gemini Ident Response:", responseText);
-        
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             const member = group.members.find(m => m.name === parsed.matchedMemberName);
-            
-            // Allow returning the message even if member is not found (AI explanation)
             return {
                 message: parsed.reply || "解析結果を取得できませんでした。",
                 member: member || undefined
             };
         } else {
-            console.warn("Invalid JSON from AI");
             return { message: "AIからの応答を解析できませんでした。" };
         }
 
     } else {
-        // --- Q&A MODE (Text Only) ---
+        // --- Q&A MODE ---
         console.log("Mode: Q&A");
         const prompt = `
         You are an assistant for a group memory app.
@@ -175,7 +168,6 @@ export async function askAIAction(groupId: string, formData: FormData) {
         Task:
         Answer the user's question based on the visual information in the group photo and the member list.
         Reply in natural Japanese.
-        If you cannot answer, honestly state that you don't know.
         `;
 
         const result = await model.generateContent([
@@ -183,14 +175,11 @@ export async function askAIAction(groupId: string, formData: FormData) {
             { inlineData: { data: groupImageBase64, mimeType: groupMimeType } }
         ]);
 
-        const responseText = result.response.text();
-        console.log("Gemini Q&A Response:", responseText);
-        return { message: responseText };
+        return { message: result.response.text() };
     }
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    // Explicitly returning error message instead of fallback
-    return { message: "AIの処理中にエラーが発生しました。しばらく待ってから再度お試しください。" };
+    return { message: "AIの処理中にエラーが発生しました。" };
   }
 }
