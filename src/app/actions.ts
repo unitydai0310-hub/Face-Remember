@@ -145,7 +145,7 @@ export async function askAIAction(groupId: string, formData: FormData) {
         const responseText = result.response.text();
         console.log("Gemini Ident Response:", responseText);
         
-        const jsonMatch = responseText.match(/\{.*\}/s);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             const member = group.members.find(m => m.name === parsed.matchedMemberName);
