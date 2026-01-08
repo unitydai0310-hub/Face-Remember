@@ -5,8 +5,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { put } from "@vercel/blob";
+import { auth } from "@clerk/nextjs/server";
 
 export async function createGroup(formData: FormData) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
   const name = formData.get("name") as string;
   const imageFile = formData.get("image") as File;
 
@@ -23,6 +27,7 @@ export async function createGroup(formData: FormData) {
     data: {
       name,
       imageUrl: blob.url,
+      userId,
     },
   });
 
@@ -31,12 +36,23 @@ export async function createGroup(formData: FormData) {
 }
 
 export async function addMember(formData: FormData) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
   const name = formData.get("name") as string;
   const description = formData.get("description") as string;
   const groupId = formData.get("groupId") as string;
 
   if (!name || !groupId) {
     throw new Error("Missing required fields");
+  }
+
+  // Verify ownership
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+  });
+  if (!group || group.userId !== userId) {
+    throw new Error("Unauthorized access to group");
   }
 
   await prisma.member.create({
@@ -51,21 +67,34 @@ export async function addMember(formData: FormData) {
 }
 
 export async function getGroups() {
+  const { userId } = await auth();
+  if (!userId) return [];
+
   const groups = await prisma.group.findMany({
+    where: { userId },
     orderBy: { createdAt: "desc" },
   });
   return groups;
 }
 
 export async function getGroupById(id: string) {
+  const { userId } = await auth();
+  if (!userId) return null;
+
   const group = await prisma.group.findUnique({
     where: { id },
     include: { members: true },
   });
+  
+  if (!group || group.userId !== userId) return null;
+  
   return group;
 }
 
 export async function askAIAction(groupId: string, formData: FormData) {
+  const { userId } = await auth();
+  if (!userId) return { message: "ログインしてください。" }; // Unauthorized
+
   console.log("--- askAIAction Started (Vercel Blob Mode) ---");
   const imageFile = formData.get("image") as File | null;
   const promptText = formData.get("prompt") as string || "";
@@ -82,6 +111,10 @@ export async function askAIAction(groupId: string, formData: FormData) {
   if (!group || group.members.length === 0) {
     return { message: "グループ情報が見つかりません、またはメンバーがいません。" };
   }
+  
+  if (group.userId !== userId) {
+      return { message: "このグループにアクセスする権限がありません。" };
+  }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -90,7 +123,6 @@ export async function askAIAction(groupId: string, formData: FormData) {
 
   try {
     // 2. Fetch Group Image from Vercel Blob (URL)
-    // We need to fetch the image via URL and convert to base64 for Gemini
     console.log("Fetching group image from URL:", group.imageUrl);
     const groupImageRes = await fetch(group.imageUrl);
     if (!groupImageRes.ok) {
@@ -102,7 +134,6 @@ export async function askAIAction(groupId: string, formData: FormData) {
 
     const membersList = group.members.map(m => `- Name: ${m.name}, Description: ${m.description || "None"}`).join("\n");
     const genAI = new GoogleGenerativeAI(apiKey);
-    // User requested gemini-2.5-flash
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     // Mode Selection

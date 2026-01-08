@@ -1,3 +1,4 @@
+import { SignedIn, SignedOut, SignInButton } from "@clerk/nextjs";
 import Link from "next/link";
 
 export default function Home() {
@@ -13,11 +14,21 @@ export default function Home() {
         </p>
 
         <div className="flex gap-4 mt-8">
-          <Link href="/dashboard">
-             <button className="px-6 py-3 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 transition">
-               はじめる
-             </button>
-          </Link>
+          <SignedOut>
+            <SignInButton mode="modal">
+                <button className="px-6 py-3 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 transition">
+                はじめる（ログイン）
+                </button>
+            </SignInButton>
+          </SignedOut>
+          <SignedIn>
+            <Link href="/dashboard">
+                <button className="px-6 py-3 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 transition">
+                ダッシュボードへ
+                </button>
+            </Link>
+          </SignedIn>
+          
           <button className="px-6 py-3 rounded-full border border-neutral-700 hover:bg-neutral-900 transition">
             詳しく見る
           </button>

@@ -6,6 +6,7 @@ import { Plus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { getGroups } from "@/app/actions";
+import { UserButton } from "@clerk/nextjs";
 
 // Define a minimal interface for what we expect from the server action
 interface Group {
@@ -48,12 +49,15 @@ export default function DashboardPage() {
     <div className="container mx-auto py-10 px-4">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">思い出のアルバム</h1>
-        <Link href="/create">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            新しい集合写真
-          </Button>
-        </Link>
+        <div className="flex items-center gap-4">
+            <UserButton afterSignOutUrl="/"/>
+            <Link href="/create">
+            <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                新しい集合写真
+            </Button>
+            </Link>
+        </div>
       </div>
 
       {error && (

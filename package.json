@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "npx prisma generate && npx prisma db push && next build",
     "start": "next start",
-    "lint": "eslint", "postinstall": "prisma generate"
+    "lint": "eslint",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.36.7",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-label": "^2.1.8",
