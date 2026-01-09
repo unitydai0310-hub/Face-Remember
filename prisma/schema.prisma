@@ -16,6 +16,7 @@ model Group {
   name      String
   imageUrl  String
   createdAt DateTime @default(now())
+  userId    String   @default("legacy_user")
   members   Member[]
 }
 
